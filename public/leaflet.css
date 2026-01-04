@@ -1,0 +1,19 @@
+/* Copia tal cual (estilo oficial) */
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+}
+
+.leaflet-pane,
+.leaflet-tile,
+.leaflet-marker-icon,
+.leaflet-marker-shadow,
+.leaflet-tile-container,
+.leaflet-map-pane,
+.leaflet-marker-pane,
+.leaflet-shadow-pane,
+.leaflet-overlay-pane,
+.leaflet-popup-pane,
+.leaflet-tooltip-pane {
+  z-index: 1;
+}
