@@ -10,11 +10,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // En src/pages/login.tsx
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
+    // 1. Intentamos iniciar sesión (Auth)
     const { data, error: loginError } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -27,17 +30,33 @@ export default function LoginPage() {
     }
 
     if (data.session) {
-      const { data: profile } = await supabase
+      // 2. Intentamos leer el Rol
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('role')
         .eq('user_id', data.session.user.id)
         .single();
 
-      if (profile?.role === 'admin') router.push('/admin');
-      else if (profile?.role === 'driver') router.push('/driver');
-      else router.push('/'); 
+      // DEBUG: Si esto sale en la consola, es culpa del RLS
+      if (profileError) {
+        console.error("Error de RLS o Base de Datos:", profileError);
+        setError("Inicio correcto, pero no se pudo verificar tu rol (Error de Permisos).");
+        setLoading(false);
+        return; // <--- IMPORTANTE: Detenemos aquí para no irnos al mapa
+      }
+
+      // 3. Redirección Inteligente
+      if (profile?.role === 'admin') {
+        router.push('/admin');
+      } else if (profile?.role === 'driver') {
+        router.push('/driver');
+      } else {
+        // Solo si es estudiante (o el rol es null pero sin error de BD) vamos al mapa
+        router.push('/map'); 
+      }
+    } else {
+       setLoading(false);
     }
-    setLoading(false);
   };
 
   return (

@@ -8,11 +8,22 @@ export default function LandingPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
 
+
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
+      
       if (session) {
-        router.push('/map'); 
+        // Verificar rol antes de mandar a ciegas
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('user_id', session.user.id)
+          .single();
+        
+        if (profile?.role === 'admin') router.push('/admin');
+        else if (profile?.role === 'driver') router.push('/driver');
+        else router.push('/map'); // Solo estudiantes al mapa
       }
       setLoading(false);
     };
