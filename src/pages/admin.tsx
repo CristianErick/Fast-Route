@@ -1,94 +1,107 @@
-import React, { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
-import { useRouter } from 'next/router';
+import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
+import { supabase } from "@/lib/supabase";
 
-export default function AdminPanel() {
-  const [users, setUsers] = useState<any[]>([]);
-  const [buses, setBuses] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+type UserRow = {
+  user_id: string;
+  email: string;
+  role: string;
+  bus_id: string | null;
+};
+
+type BusRow = {
+  id: string;
+  label: string;
+};
+
+export default function AdminPage() {
   const router = useRouter();
+
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [buses, setBuses] = useState<BusRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
 
   /* =========================
      1. Verificación ADMIN
      ========================= */
   useEffect(() => {
-    async function checkAdmin() {
-      const { data: { session } } = await supabase.auth.getSession();
+    const checkAdmin = async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
 
-      if (!session) {
-        router.push('/login');
+      if (!sessionData.session) {
+        router.replace("/login");
         return;
       }
 
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('user_id', session.user.id)
+      const userId = sessionData.session.user.id;
+
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", userId) // ✅ CORRECTO
         .single();
 
-      if (error || data?.role !== 'admin') {
-        alert('Acceso denegado');
-        router.push('/');
+      if (error || !profile || profile.role !== "admin") {
+        router.replace("/");
         return;
       }
 
+      setAuthorized(true);
       await fetchData();
-    }
+      setLoading(false);
+    };
 
     checkAdmin();
-  }, []);
+  }, [router]);
 
   /* =========================
-     2. Cargar datos (RPC)
+     2. Cargar datos
      ========================= */
   async function fetchData() {
-    setLoading(true);
-
     const { data: usersData, error: usersError } =
-      await supabase.rpc('get_all_users');
+      await supabase.rpc("get_all_users");
 
     const { data: busesData, error: busesError } =
-      await supabase.from('buses').select('*');
+      await supabase.from("buses").select("id, label");
 
     if (usersError) {
-      alert('Error cargando usuarios');
-      console.error(usersError);
+      console.error("Error cargando usuarios:", usersError);
+    } else {
+      setUsers(usersData || []);
     }
 
     if (busesError) {
-      alert('Error cargando buses');
-      console.error(busesError);
+      console.error("Error cargando buses:", busesError);
+    } else {
+      setBuses(busesData || []);
     }
-
-    if (usersData) setUsers(usersData);
-    if (busesData) setBuses(busesData);
-
-    setLoading(false);
   }
 
   /* =========================
-     3. Actualizar usuario (RPC)
+     3. Actualizar usuario
      ========================= */
   async function updateUser(
     userId: string,
-    field: 'role' | 'bus_id',
+    field: "role" | "bus_id",
     value: any
   ) {
-    const { error } = await supabase.rpc('admin_update_user', {
+    const { error } = await supabase.rpc("admin_update_user", {
       p_user_id: userId,
       p_field: field,
-      p_value: value
+      p_value: value,
     });
 
     if (error) {
-      alert('Error actualizando');
-      console.error(error);
+      console.error("Error actualizando usuario:", error);
       return;
     }
 
-    setUsers(users.map(u =>
-      u.user_id === userId ? { ...u, [field]: value } : u
-    ));
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.user_id === userId ? { ...u, [field]: value } : u
+      )
+    );
   }
 
   /* =========================
@@ -96,124 +109,108 @@ export default function AdminPanel() {
      ========================= */
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push('/login');
+    router.replace("/login");
   };
 
   /* =========================
-     LOADING
+     LOADING / BLOQUEO
      ========================= */
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen flex items-center justify-center text-slate-500">
+        Verificando permisos...
       </div>
     );
   }
+
+  if (!authorized) return null;
 
   /* =========================
      UI
      ========================= */
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-6 relative overflow-hidden">
-
-      {/* Fondo neón */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-blue-600 rounded-full mix-blend-multiply blur-3xl opacity-10 animate-blob"></div>
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-600 rounded-full mix-blend-multiply blur-3xl opacity-10 animate-blob animation-delay-2000"></div>
-
-      <div className="max-w-7xl mx-auto relative z-10">
+    <div className="min-h-screen bg-slate-900 text-white p-6">
+      <div className="max-w-7xl mx-auto">
 
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+        <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-              Panel de Administración
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Gestión de Usuarios, Roles y Flota
+            <h1 className="text-3xl font-bold">Panel de Administración</h1>
+            <p className="text-slate-400 text-sm">
+              Gestión de usuarios, roles y flota
             </p>
           </div>
 
           <button
             onClick={handleLogout}
-            className="px-5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm shadow-lg"
+            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm"
           >
-            Cerrar Sesión
+            Cerrar sesión
           </button>
         </div>
 
         {/* Tabla */}
-        <div className="bg-slate-800/50 backdrop-blur-md rounded-2xl border border-slate-700 shadow-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="bg-slate-900/80 text-slate-400 text-xs uppercase border-b border-slate-700">
-                  <th className="p-5">Usuario / Email</th>
-                  <th className="p-5">Rol</th>
-                  <th className="p-5">Bus</th>
-                </tr>
-              </thead>
+        <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-slate-900 text-xs uppercase text-slate-400">
+              <tr>
+                <th className="p-4">Usuario</th>
+                <th className="p-4">Rol</th>
+                <th className="p-4">Bus</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700">
+              {users.map((user) => (
+                <tr key={user.user_id} className="hover:bg-slate-700/30">
 
-              <tbody className="divide-y divide-slate-700/50">
-                {users.map(user => (
-                  <tr key={user.user_id} className="hover:bg-slate-700/30">
+                  <td className="p-4 font-mono text-sm">
+                    {user.email}
+                  </td>
 
-                    {/* Email */}
-                    <td className="p-5">
-                      <div className="flex items-center">
-                        <div className="h-8 w-8 rounded-full bg-slate-700 flex items-center justify-center mr-3 text-xs font-bold">
-                          {user.email.charAt(0).toUpperCase()}
-                        </div>
-                        <span className="font-mono text-sm">{user.email}</span>
-                      </div>
-                    </td>
+                  <td className="p-4">
+                    <select
+                      value={user.role}
+                      onChange={(e) =>
+                        updateUser(user.user_id, "role", e.target.value)
+                      }
+                      className="bg-slate-900 text-white rounded px-2 py-1"
+                    >
+                      <option value="reader">Lector</option>
+                      <option value="driver">Conductor</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </td>
 
-                    {/* Rol */}
-                    <td className="p-5">
+                  <td className="p-4">
+                    {user.role === "driver" ? (
                       <select
-                        value={user.role || 'reader'}
+                        value={user.bus_id || ""}
                         onChange={(e) =>
-                          updateUser(user.user_id, 'role', e.target.value)
+                          updateUser(user.user_id, "bus_id", e.target.value)
                         }
-                        className="bg-slate-900 text-white rounded-lg px-3 py-1.5"
+                        className="bg-slate-900 text-white rounded px-2 py-1"
                       >
-                        <option value="reader">Lector</option>
-                        <option value="driver">Conductor</option>
-                        <option value="admin">Admin</option>
+                        <option value="">-- Sin bus --</option>
+                        {buses.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.label}
+                          </option>
+                        ))}
                       </select>
-                    </td>
+                    ) : (
+                      <span className="text-slate-500 text-xs italic">
+                        No aplica
+                      </span>
+                    )}
+                  </td>
 
-                    {/* Bus */}
-                    <td className="p-5">
-                      {user.role === 'driver' ? (
-                        <select
-                          value={user.bus_id || ''}
-                          onChange={(e) =>
-                            updateUser(user.user_id, 'bus_id', e.target.value)
-                          }
-                          className="bg-slate-900 border border-slate-600 text-white rounded-lg p-2"
-                        >
-                          <option value="">-- Sin Bus --</option>
-                          {buses.map(b => (
-                            <option key={b.id} value={b.id}>
-                              {b.label}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="text-slate-600 text-xs italic">
-                          No requiere bus
-                        </span>
-                      )}
-                    </td>
-
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
 
-        <div className="mt-4 text-center text-xs text-slate-500">
+        <div className="mt-4 text-xs text-slate-500 text-center">
           Mostrando {users.length} usuarios
         </div>
 
