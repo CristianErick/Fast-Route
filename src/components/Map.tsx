@@ -36,7 +36,7 @@ const nearestStopIcon = L.icon({
 });
 
 const busIcon = L.icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/3448/3448339.png", 
+  iconUrl: "/bus.png", 
   iconSize: [40, 40],
   iconAnchor: [20, 20],
 });
@@ -116,9 +116,13 @@ export default function Map() {
   function getNearestStop(lat: number, lon: number) {
     if (!quadTreeRef.current) return null;
 
-    const range = new Rectangle(lat, lon, 0.005, 0.005);
-    const candidates = quadTreeRef.current.query(range); 
+    const range = new Rectangle(lat, lon, 0.01, 0.01);
+    let candidates = quadTreeRef.current.query(range); 
     
+    if (candidates.length === 0) {
+       candidates = stopsRef.current.map(s => ({ x: s.lat, y: s.lon, data: s }));
+    }
+
     let minDist = Infinity;
     let nearest: { stop: Stop; distance: number } | null = null;
 
