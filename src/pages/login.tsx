@@ -1,66 +1,57 @@
 import React, { useState } from 'react';
-import { supabase } from '../lib/supabase';
-import { useRouter } from 'next/router';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
+import { supabase } from '../lib/supabase';
 
 export default function LoginPage() {
+  const router = useRouter();
+  
+  // Estados del formulario
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
-
-  // En src/pages/login.tsx
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    // 1. Intentamos iniciar sesión (Auth)
-    const { data, error: loginError } = await supabase.auth.signInWithPassword({
+    // 1. Iniciar sesión
+    const { data: { session }, error: loginError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    if (loginError) {
+    if (loginError || !session) {
       setError("Credenciales incorrectas o usuario no registrado.");
       setLoading(false);
       return;
     }
 
-    if (data.session) {
-      // 2. Intentamos leer el Rol
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('user_id', data.session.user.id)
-        .single();
+    // 2. Verificar Rol
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('user_id', session.user.id)
+      .single();
 
-      // DEBUG: Si esto sale en la consola, es culpa del RLS
-      if (profileError) {
-        console.error("Error de RLS o Base de Datos:", profileError);
-        setError("Inicio correcto, pero no se pudo verificar tu rol (Error de Permisos).");
-        setLoading(false);
-        return; // <--- IMPORTANTE: Detenemos aquí para no irnos al mapa
-      }
-
-      // 3. Redirección Inteligente
-      if (profile?.role === 'admin') {
-        router.push('/admin');
-      } else if (profile?.role === 'driver') {
-        router.push('/driver');
-      } else {
-        // Solo si es estudiante (o el rol es null pero sin error de BD) vamos al mapa
-        router.push('/map'); 
-      }
-    } else {
-       setLoading(false);
+    if (profileError) {
+      console.error("Error obteniendo perfil:", profileError);
+      setError("Inicio correcto, pero no se pudo verificar tu rol.");
+      setLoading(false);
+      return;
     }
+
+    // 3. Redirección basada en Rol
+    if (profile?.role === 'admin') router.push('/admin');
+    else if (profile?.role === 'driver') router.push('/driver');
+    else router.push('/map'); // Estudiantes por defecto
   };
 
   return (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      
       {/* Fondo decorativo */}
       <div className="absolute top-0 left-0 w-96 h-96 bg-blue-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob"></div>
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-600 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-2000"></div>
@@ -86,6 +77,7 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="tu@uni.edu.pe"
+              required
             />
           </div>
           <div>
@@ -96,12 +88,13 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
+              required
             />
           </div>
           <button 
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition duration-200 shadow-lg shadow-blue-500/20 disabled:opacity-50"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition duration-200 shadow-lg shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? 'Entrando...' : 'Iniciar Sesión'}
           </button>

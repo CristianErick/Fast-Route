@@ -8,22 +8,22 @@ export default function LandingPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
 
-
+  // REDIRECCIÓN INTELIGENTE
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       
       if (session) {
-        // Verificar rol antes de mandar a ciegas
         const { data: profile } = await supabase
           .from('profiles')
           .select('role')
           .eq('user_id', session.user.id)
           .single();
         
+        // Redirigir según rol
         if (profile?.role === 'admin') router.push('/admin');
         else if (profile?.role === 'driver') router.push('/driver');
-        else router.push('/map'); // Solo estudiantes al mapa
+        else router.push('/map'); 
       }
       setLoading(false);
     };
@@ -35,7 +35,7 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen flex flex-col relative overflow-hidden transition-colors duration-300 bg-gray-50 text-slate-900 dark:bg-slate-900 dark:text-white">
       
-      {/* Decoración de Fondo (Solo visible en modo oscuro para no molestar en blanco) */}
+      {/* Fondo Decorativo (Modo Oscuro) */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0 pointer-events-none opacity-0 dark:opacity-20 transition-opacity duration-500">
         <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-600 rounded-full mix-blend-multiply filter blur-[120px] animate-blob"></div>
         <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-purple-600 rounded-full mix-blend-multiply filter blur-[120px] animate-blob animation-delay-2000"></div>
@@ -48,9 +48,7 @@ export default function LandingPage() {
         </div>
         
         <div className="flex items-center gap-4">
-          {/* Aquí vive tu botón de cambio de tema */}
           <ThemeToggle />
-          
           <Link href="/login" className="text-sm font-medium text-slate-600 hover:text-black dark:text-slate-300 dark:hover:text-white transition">
             Soy Administrativo
           </Link>
@@ -60,7 +58,7 @@ export default function LandingPage() {
       {/* Hero Section */}
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center text-center px-4 mt-10">
         <div className="inline-block px-4 py-1.5 mb-6 rounded-full border border-blue-500/30 bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300 text-xs font-semibold tracking-wide uppercase transition-colors">
-          Versión 2.0 • Universidad Nacional del Altiplano
+          Versión Beta 2.6.1 • Universidad Nacional del Altiplano
         </div>
         
         <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 leading-tight text-slate-900 dark:text-white transition-colors">
@@ -91,42 +89,6 @@ export default function LandingPage() {
           <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-8">
             Desarrollado por el Equipo de Ingeniería de Sistemas - 4to semestre
           </h2>
-          
-          <div className="flex flex-wrap justify-center gap-8">
-            {/* MIEMBRO 1 */}
-            <div className="group">
-              <div className="w-16 h-16 mx-auto rounded-full p-[2px] bg-gradient-to-br from-blue-500 to-purple-600">
-                <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center text-xl transition-colors">
-                  👨‍💻
-                </div>
-              </div>
-              <p className="mt-3 font-medium text-slate-900 dark:text-white">Elvis Zela</p>
-              <p className="text-xs text-slate-500">---</p>
-            </div>
-
-            {/* MIEMBRO 2 */}
-            <div className="group">
-              <div className="w-16 h-16 mx-auto rounded-full p-[2px] bg-slate-200 dark:bg-slate-700 group-hover:bg-gradient-to-br group-hover:from-emerald-500 group-hover:to-teal-500 transition-all">
-                 <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center text-xl transition-colors">
-                  🚀
-                </div>
-              </div>
-              <p className="mt-3 font-medium text-slate-900 dark:text-white">Jhon Mamani</p>
-              <p className="text-xs text-slate-500">---</p>
-            </div>
-
-            {/* MIEMBRO 3 */}
-            <div className="group">
-              <div className="w-16 h-16 mx-auto rounded-full p-[2px] bg-slate-200 dark:bg-slate-700 group-hover:bg-gradient-to-br group-hover:from-pink-500 group-hover:to-orange-500 transition-all">
-                 <div className="w-full h-full rounded-full bg-white dark:bg-slate-900 flex items-center justify-center text-xl transition-colors">
-                  🎨
-                </div>
-              </div>
-              <p className="mt-3 font-medium text-slate-900 dark:text-white">Cristian Cauna</p>
-              <p className="text-xs text-slate-500">---</p>
-            </div>
-          </div>
-          
           <p className="mt-12 text-slate-400 text-xs">
             © 2025 Universidad Nacional del Altiplano - Puno
           </p>

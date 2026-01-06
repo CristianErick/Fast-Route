@@ -8,7 +8,6 @@ const MapComponent = dynamic(() => import('../components/Map'), {
   loading: () => (
     <div className="h-screen w-full flex items-center justify-center bg-slate-900 text-white">
       <div className="animate-pulse flex flex-col items-center">
-        <div className="text-4xl mb-4">🚌</div>
         <p className="text-sm font-light tracking-widest">CARGANDO RUTA...</p>
       </div>
     </div>
