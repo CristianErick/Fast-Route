@@ -8,7 +8,8 @@ export default function AdminPanel() {
   const [loading, setLoading] = useState(true);
   
   // Estados para las estadísticas
-  const [stats, setStats] = useState({ totalUsers: 0, activeBuses: 0, totalStops: 0 });
+  const [stats, setStats] = useState({ totalUsers: 0, activeBuses: 0 });
+  const [topStops, setTopStops] = useState<any[]>([]); // <--- NUEVO: Para el ranking
   
   const router = useRouter();
 
@@ -38,28 +39,38 @@ export default function AdminPanel() {
   async function fetchData() {
     setLoading(true);
     
-    // Traer usuarios
+    // A. Traer usuarios
     const { data: usersData } = await supabase.rpc('get_all_users');
-    // Traer buses
+    
+    // B. Traer buses
     const { data: busesData } = await supabase.from('buses').select('*');
-    // Traer conteo de paraderos (Simulando lectura de matriz)
-    const { count: stopsCount } = await supabase.from('stops').select('*', { count: 'exact', head: true });
+    
+    // C. Traer EL RANKING (Lo nuevo de tu compañero)
+    const { data: analyticsData } = await supabase
+      .from('stop_analytics')
+      .select('visit_count, stops(name)')
+      .order('visit_count', { ascending: false })
+      .limit(3);
 
     if (usersData) {
         const sorted = (usersData as any[]).sort((a, b) => a.email.localeCompare(b.email));
         setUsers(sorted);
-        
-        // Calcular Estadísticas
-        const activeDrivers = sorted.filter(u => u.role === 'driver').length;
         setStats({
             totalUsers: sorted.length,
-            activeBuses: busesData?.length || 0,
-            totalStops: stopsCount || 0
+            activeBuses: busesData?.length || 0
         });
     }
     
-    if (busesData) setBuses(busesData);
+    if (analyticsData) {
+        // Formateamos los datos para la tarjeta
+        const formatted = analyticsData.map((item: any) => ({
+            name: item.stops?.name || 'Paradero',
+            count: item.visit_count
+        }));
+        setTopStops(formatted);
+    }
     
+    if (busesData) setBuses(busesData);
     setLoading(false);
   }
 
@@ -102,7 +113,7 @@ export default function AdminPanel() {
           </div>
         </div>
 
-        {/* --- TARJETAS DE ESTADÍSTICAS (NUEVO) --- */}
+        {/* --- TARJETAS DE ESTADÍSTICAS --- */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {/* Card 1 */}
             <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center gap-4">
@@ -124,14 +135,26 @@ export default function AdminPanel() {
                     <h3 className="text-2xl font-bold text-white">{stats.activeBuses} Und.</h3>
                 </div>
             </div>
-            {/* Card 3 */}
-            <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 shadow-lg flex items-center gap-4">
-                <div className="p-3 bg-purple-500/20 text-purple-400 rounded-xl">
-                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-                </div>
-                <div>
-                    <p className="text-slate-400 text-xs uppercase font-bold">Nodos (Paraderos)</p>
-                    <h3 className="text-2xl font-bold text-white">{stats.totalStops}</h3>
+            {/* Card 3 - RANKING DE PARADEROS (Matriz Dispersa Visual) */}
+            <div className="bg-slate-800/50 p-4 rounded-2xl border border-slate-700 shadow-lg flex flex-col justify-center min-h-[100px]">
+                <h4 className="text-slate-400 text-xs uppercase font-bold mb-2 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                    Más Visitados (Hoy)
+                </h4>
+                <div className="space-y-2">
+                    {topStops.length > 0 ? topStops.map((stop, i) => (
+                        <div key={i} className="flex justify-between items-center text-sm border-b border-slate-700/50 pb-1 last:border-0 last:pb-0">
+                            <span className="text-slate-300 truncate w-32 flex items-center gap-2">
+                                <span className="text-slate-500 font-mono text-xs">#{i+1}</span>
+                                {stop.name}
+                            </span>
+                            <span className="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-xs font-mono font-bold">
+                                {stop.count}
+                            </span>
+                        </div>
+                    )) : (
+                        <p className="text-slate-500 text-xs italic py-2">Sin datos de actividad...</p>
+                    )}
                 </div>
             </div>
         </div>
