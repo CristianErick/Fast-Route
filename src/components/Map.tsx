@@ -8,6 +8,7 @@ import { QuadTree, Rectangle } from "@/utils/QuadTree";
 import { RouteGraph } from "@/utils/Graph";
 import { useRouter } from "next/router";
 
+// --- TU CLAVE DE OPENROUTESERVICE ---
 const ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjZiMWFhZjY1YzQ1ZTQ1MzdiZTVlZTY3MmZmZDhlNDgzIiwiaCI6Im11cm11cjY0In0=";
 
 const createIcon = (url: string, size: [number, number]) => L.icon({
@@ -49,7 +50,7 @@ export default function Map() {
   const lastPositionRef = useRef<{lat: number, lon: number} | null>(null);
   const lastMoveTimeRef = useRef<number>(Date.now()); 
 
-  const [firstPoint, setFirstPoint] = useState<{ lat: number; lon: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
   const stopsRef = useRef<Stop[]>([]);
   const quadTreeRef = useRef<QuadTree | null>(null);
   const routeGraphRef = useRef<RouteGraph | null>(null);
@@ -63,20 +64,48 @@ export default function Map() {
   const [filteredStops, setFilteredStops] = useState<Stop[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
-  // --- LOGOUT ---
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push('/login');
   };
 
-  // --- CARGA DE DATOS ---
-  async function loadStops(map: L.Map) {
-    const { data, error } = await supabase
-      .from("stops")
-      .select("*")
-      .eq("active", true)
-      .order("seq", { ascending: true });
+  // --- RE-CENTRAR GPS ---
+  const handleLocateMe = () => {
+    if (!mapRef.current) return;
 
+    if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                // Simula un clic en tu ubicación real
+                updateUserPosition(latitude, longitude);
+                mapRef.current?.flyTo([latitude, longitude], 16, { duration: 1.5 });
+            },
+            (error) => {
+                alert("Activa tu GPS para usar esta función.");
+                console.warn(error);
+            },
+            { enableHighAccuracy: true }
+        );
+    }
+  };
+
+  // --- LÓGICA CENTRALIZADA DE POSICIÓN (USADA POR GPS Y POR CLIC) ---
+  const updateUserPosition = (lat: number, lon: number) => {
+      if (!mapRef.current) return;
+      
+      setUserLocation({ lat, lon });
+
+      // Mover muñequito
+      if (userMarkerRef.current) userMarkerRef.current.remove();
+      userMarkerRef.current = L.marker([lat, lon], { icon: icons.user }).addTo(mapRef.current);
+
+      // Calcular ruta al instante
+      highlightNearest(mapRef.current, lat, lon);
+  };
+
+  async function loadStops(map: L.Map) {
+    const { data, error } = await supabase.from("stops").select("*").eq("active", true).order("seq", { ascending: true });
     if (error || !data) return;
     const stopsData = data as Stop[];
     stopsRef.current = stopsData;
@@ -86,20 +115,15 @@ export default function Map() {
     const graph = new RouteGraph();
 
     stopsData.forEach((stop, index) => {
-      const marker = L.marker([stop.lat, stop.lon], { icon: icons.stop })
-        .addTo(map)
-        .bindPopup(`<b>${stop.name}</b><br>Paradero #${stop.seq}`);
-      
+      const marker = L.marker([stop.lat, stop.lon], { icon: icons.stop }).addTo(map).bindPopup(`<b>${stop.name}</b><br>Paradero #${stop.seq}`);
       stopMarkersRef.current[stop.id] = marker; 
       qt.insert({ x: stop.lat, y: stop.lon, data: stop });
-      
       if (index < stopsData.length - 1) {
         const nextStop = stopsData[index + 1];
         const dist = distanceMeters(stop.lat, stop.lon, nextStop.lat, nextStop.lon);
         graph.addConnection(stop.id, nextStop.id, dist);
       }
     });
-
     quadTreeRef.current = qt;
     routeGraphRef.current = graph;
   }
@@ -127,22 +151,14 @@ export default function Map() {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  // --- API DE RUTAS (OpenRouteService) ---
   async function fetchWalkingRoute(lat1: number, lon1: number, lat2: number, lon2: number) {
     try {
       if (!ORS_API_KEY || ORS_API_KEY.includes("PEGA_TU")) return null;
-
       const res = await fetch("https://api.openrouteservice.org/v2/directions/foot-walking/geojson", {
         method: "POST",
-        headers: {
-          "Authorization": ORS_API_KEY,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          coordinates: [[lon1, lat1], [lon2, lat2]] 
-        })
+        headers: { "Authorization": ORS_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ coordinates: [[lon1, lat1], [lon2, lat2]] })
       });
-
       if (!res.ok) return null;
       return await res.json();
     } catch (err) { return null; }
@@ -153,7 +169,6 @@ export default function Map() {
     const range = new Rectangle(lat, lon, 0.01, 0.01);
     let candidates = quadTreeRef.current.query(range); 
     if (candidates.length === 0) candidates = stopsRef.current.map(s => ({ x: s.lat, y: s.lon, data: s }));
-
     let minDist = Infinity;
     let nearest: { stop: Stop; distance: number } | null = null;
     candidates.forEach((p) => {
@@ -164,7 +179,6 @@ export default function Map() {
     return nearest;
   }
 
-  // --- INTERACCIÓN VISUAL ---
   async function highlightNearest(map: L.Map, userLat: number, userLon: number, fromSearch = false) {
     const nearest: any = getNearestStop(userLat, userLon);
     if (!nearest) { setGraphInfo("Sin paraderos cercanos."); return; }
@@ -179,11 +193,9 @@ export default function Map() {
         const currentMarker = stopMarkersRef.current[stop.id];
         currentMarker.setIcon(icons.nearest); 
         currentMarker.setZIndexOffset(1000);  
-        
         const popupContent = fromSearch 
              ? `<b>🎯 Resultado:</b><br>${stop.name}`
              : `<b>📍 Más cercano:</b><br>${stop.name}<br>Distancia Aprox: ${Math.round(nearest.distance)}m`;
-        
         currentMarker.bindPopup(popupContent).openPopup();
         lastHighlightedStopId.current = stop.id; 
     }
@@ -195,7 +207,6 @@ export default function Map() {
         const nextStop = stopsRef.current[currentIndex + 1];
         const pathData = routeGraphRef.current.findShortestPath(stop.id, nextStop.id);
         mensajeGrafo = `Siguiente: "${nextStop.name}" (${Math.round(pathData.distance)}m)`;
-        
         if(connectionLineRef.current) connectionLineRef.current.remove();
         connectionLineRef.current = L.polyline([[stop.lat, stop.lon], [nextStop.lat, nextStop.lon]], {
             color: '#8b5cf6', weight: 3, dashArray: '5, 10', opacity: 0.5 
@@ -222,12 +233,10 @@ export default function Map() {
         const routeData = await fetchWalkingRoute(userLat, userLon, stop.lat, stop.lon);
         if (routeData && routeData.features && routeData.features.length > 0) {
             if (walkingRouteRef.current) walkingRouteRef.current.remove();
-            
             const coords = routeData.features[0].geometry.coordinates.map((p: number[]) => [p[1], p[0]]);
             walkingRouteRef.current = L.polyline(coords, {
                 weight: 4, color: "#ea580c", dashArray: "10, 15", lineCap: "round"
             }).addTo(map);
-            
             const summary = routeData.features[0].properties.summary;
             const durationMins = Math.round(summary.duration / 60);
             setGraphInfo(prev => `🚶 ${durationMins} min a pie | ` + prev);
@@ -283,36 +292,20 @@ export default function Map() {
     if (mapRef.current) return;
 
     const map = L.map("map", { center: [-15.84, -70.0219], zoom: 14, zoomControl: false });
-    // Movemos los controles de zoom arriba a la derecha, debajo del header
-    L.control.zoom({ position: 'topright' }).addTo(map);
+    // ZOOM ABAJO A LA DERECHA (Debajo del botón GPS)
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
     mapRef.current = map;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
 
-    loadStops(map).then(() => {
-        if ("geolocation" in navigator) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const { latitude, longitude } = position.coords;
-                    setFirstPoint({ lat: latitude, lon: longitude });
-                    if (userMarkerRef.current) userMarkerRef.current.remove();
-                    userMarkerRef.current = L.marker([latitude, longitude], { icon: icons.user }).addTo(map);
-                    highlightNearest(map, latitude, longitude);
-                },
-                (error) => console.warn("GPS Denegado"),
-                { enableHighAccuracy: true } 
-            );
-        }
-    });
-
+    loadStops(map).then(() => handleLocateMe());
     loadRoute(map);
 
-    map.on("click", (e: L.LeafletMouseEvent) => {
-      const { lat, lng } = e.latlng;
-      setFirstPoint({ lat, lon: lng });
-      if (userMarkerRef.current) userMarkerRef.current.remove();
-      userMarkerRef.current = L.marker([lat, lng], { icon: icons.user }).addTo(map);
-      highlightNearest(map, lat, lng);
-    });
+    // --- ¡TRUCO DE DEMO! ---
+    // Esto permite cambiar de ubicación haciendo clic (CRUCIAL para la presentación)
+    //map.on("click", (e: L.LeafletMouseEvent) => {
+     // const { lat, lng } = e.latlng;
+      //updateUserPosition(lat, lng); // Teletransportarse
+    //});
 
     const channel = supabase
       .channel("positions-tracker")
@@ -331,19 +324,15 @@ export default function Map() {
                     "bg-red-100 text-red-700 border-red-200";
 
   return (
-    // ESTRUCTURA PRINCIPAL: Flex en Columna para separar Header y Mapa
     <div className="flex flex-col h-screen w-full font-sans bg-slate-900 overflow-hidden">
       
-      {/* --- 1. HEADER (FIJO ARRIBA) --- */}
+      {/* HEADER */}
       <header className="h-16 flex items-center justify-between px-4 bg-slate-900 border-b border-slate-800 shadow-xl z-50">
-        
-        {/* Izquierda: Logo */}
         <div className="flex items-center gap-3">
-            <img src="/logo_fast_route.png" alt="Logo" className="w-8 h-8 object-contain" onError={(e) => e.currentTarget.src = '/bus.png'} />
+            <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" onError={(e) => e.currentTarget.src = '/bus.png'} />
             <span className="font-extrabold tracking-wider text-white text-lg hidden sm:block">FAST ROUTE</span>
         </div>
 
-        {/* Centro: Buscador Integrado */}
         <div className="relative w-full max-w-sm md:max-w-md mx-4">
              <div className="relative">
                 <input 
@@ -365,7 +354,6 @@ export default function Map() {
                     </button>
                 )}
             </div>
-            {/* Resultados Flotantes */}
             {isSearching && filteredStops.length > 0 && (
                 <div className="absolute top-11 left-0 w-full bg-slate-800 rounded-xl shadow-2xl overflow-hidden border border-slate-700 max-h-60 overflow-y-auto z-50">
                     {filteredStops.map(stop => (
@@ -378,23 +366,33 @@ export default function Map() {
             )}
         </div>
 
-        {/* Derecha: Acciones */}
         <div className="flex gap-2">
              <a href="/profile" className="flex items-center justify-center w-10 h-10 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-blue-400 transition-all" title="Mi Perfil">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
              </a>
              <button onClick={handleLogout} className="flex items-center justify-center w-10 h-10 rounded-xl hover:bg-red-500/10 text-slate-400 hover:text-red-500 transition-all" title="Salir">
-                {/* Icono Puerta */}
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
              </button>
         </div>
       </header>
 
-      {/* --- 2. MAPA (OCUPA EL RESTO) --- */}
+      {/* MAPA */}
       <div className="flex-1 relative w-full h-full">
         <div id="map" className="w-full h-full z-0 bg-zinc-100" />
         
-        {/* Estado del Servicio (Flotante Abajo) */}
+        {/* --- BOTÓN GPS (CENTRAR EN MÍ) --- */}
+        {/* Ubicado abajo a la derecha, encima del Zoom */}
+        <div className="absolute bottom-24 right-4 z-[400]">
+            <button 
+                onClick={handleLocateMe}
+                className="bg-white hover:bg-blue-50 text-slate-600 hover:text-blue-600 w-10 h-10 rounded shadow-lg border border-slate-300 flex items-center justify-center transition-all"
+                title="Centrar en mi ubicación"
+            >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+            </button>
+        </div>
+
+        {/* Estado del Servicio */}
         <div className="absolute bottom-6 left-4 z-[400] max-w-[280px]">
             <div className="bg-white/95 backdrop-blur shadow-2xl rounded-2xl p-4 border border-zinc-200 transition-all duration-300">
             <div className="flex justify-between items-center mb-3">
