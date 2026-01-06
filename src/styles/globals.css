@@ -25,3 +25,36 @@
 .leaflet-popup-tip {
   @apply shadow-xl;
 }
+
+/* --- SCROLLBAR MODERNO (Webkit) --- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent; 
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569; /* Color Slate-600 */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3b82f6; /* Azul al pasar el mouse */
+}
+
+/* Para Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #475569 transparent;
+}
+
+/* Efecto de Botones */
+button {
+  transition: all 0.2s ease-in-out;
+}
+button:active {
+  transform: scale(0.95); /* Efecto de "presionar" */
+}

@@ -37,7 +37,7 @@ export default function Map() {
   const walkingRouteRef = useRef<L.Polyline | null>(null);
   const connectionLineRef = useRef<L.Polyline | null>(null);
 
-  // --- REFERENCIAS PARA EVITAR DUPLICADOS ---
+  // --- REFERENCIAS ---
   const busMarkersRef = useRef<{ [key: string]: L.Marker }>({});
   const stopMarkersRef = useRef<{ [key: string]: L.Marker }>({}); 
   const lastHighlightedStopId = useRef<string | null>(null);
@@ -58,11 +58,11 @@ export default function Map() {
   const [serviceStatus, setServiceStatus] = useState<'waiting' | 'active' | 'offline'>('offline');
   const [lastUpdateInfo, setLastUpdateInfo] = useState<string>("Esperando señal...");
   
-  // --- ESTADO BUSCADOR (COLLAPSIBLE) ---
+  // Estado Buscador
   const [searchTerm, setSearchTerm] = useState("");
   const [filteredStops, setFilteredStops] = useState<Stop[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isSearchExpanded, setIsSearchExpanded] = useState(false); // <--- NUEVO: Para abrir/cerrar en móvil
+  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
 
   // --- 1. CARGA DE DATOS ---
   async function loadStops(map: L.Map) {
@@ -81,16 +81,13 @@ export default function Map() {
     const graph = new RouteGraph();
 
     stopsData.forEach((stop, index) => {
-      // 1. Crear marcador
       const marker = L.marker([stop.lat, stop.lon], { icon: icons.stop })
         .addTo(map)
         .bindPopup(`<b>${stop.name}</b><br>Paradero #${stop.seq}`);
       
-      // 2. Guardar referencia
       stopMarkersRef.current[stop.id] = marker; 
-
-      // 3. Estructuras de datos
       qt.insert({ x: stop.lat, y: stop.lon, data: stop });
+      
       if (index < stopsData.length - 1) {
         const nextStop = stopsData[index + 1];
         const dist = distanceMeters(stop.lat, stop.lon, nextStop.lat, nextStop.lon);
@@ -106,7 +103,6 @@ export default function Map() {
   async function loadRoute(map: L.Map) {
     let { data } = await supabase.from("routes").select("geojson").eq("name", "Ruta Principal Universitaria").limit(1);
     
-    // Fallback si no encuentra por nombre exacto
     if (!data || data.length === 0) {
         const result = await supabase.from("routes").select("geojson").limit(1);
         data = result.data;
@@ -145,7 +141,7 @@ export default function Map() {
     return nearest;
   }
 
-  // --- 3. INTERACCIÓN VISUAL (SIN DUPLICADOS) ---
+  // --- 3. INTERACCIÓN VISUAL ---
   async function highlightNearest(map: L.Map, userLat: number, userLon: number, fromSearch = false) {
     const nearest: any = getNearestStop(userLat, userLon);
     if (!nearest) { setGraphInfo("Sin paraderos cercanos."); return; }
@@ -191,7 +187,7 @@ export default function Map() {
       setGraphInfo(mensajeGrafo);
     }
 
-    // Línea usuario -> paradero
+    // Línea usuario -> paradero (Visualización de "Vía más rápida")
     if (walkingRouteRef.current) walkingRouteRef.current.remove();
     if (fromSearch) {
         map.flyTo([stop.lat, stop.lon], 17, { duration: 1.5 });
@@ -199,6 +195,7 @@ export default function Map() {
         walkingRouteRef.current = L.polyline([[userLat, userLon], [stop.lat, stop.lon]], {
             weight: 4, dashArray: "10 10", color: "#ea580c"
         }).addTo(map);
+        // Ajustamos la vista para que se vea el usuario y el paradero
         map.fitBounds(walkingRouteRef.current.getBounds(), { padding: [100, 100] });
     }
   }
@@ -218,7 +215,7 @@ export default function Map() {
   const selectStop = (stop: Stop) => {
     setSearchTerm(stop.name);
     setIsSearching(false);
-    setIsSearchExpanded(false); // Cerrar al seleccionar en móvil
+    setIsSearchExpanded(false);
     if(mapRef.current) highlightNearest(mapRef.current, stop.lat, stop.lon, true);
   };
 
@@ -236,8 +233,8 @@ export default function Map() {
       lastMoveTimeRef.current = now; 
       setServiceStatus('active');
       if (!hasCenteredRef.current) {
-        mapRef.current.flyTo([lat, lon], 16, { duration: 1.5 });
-        hasCenteredRef.current = true;
+        // mapRef.current.flyTo([lat, lon], 16, { duration: 1.5 }); // Opcional: Centrar en bus si se mueve
+        // hasCenteredRef.current = true;
       }
     } else {
       if (now - lastMoveTimeRef.current > 60000) setServiceStatus('waiting'); 
@@ -253,6 +250,7 @@ export default function Map() {
     }
   }
 
+  // --- INICIALIZACIÓN ---
   useEffect(() => {
     if (typeof window === "undefined") return; 
     if (mapRef.current) return;
@@ -262,9 +260,35 @@ export default function Map() {
     mapRef.current = map;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap" }).addTo(map);
 
-    loadStops(map);
+    // --- AQUÍ ESTÁ EL CAMBIO (GEOLOCALIZACIÓN AUTOMÁTICA) ---
+    // Cargamos los paraderos y LUEGO pedimos el GPS
+    loadStops(map).then(() => {
+        if ("geolocation" in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+                    
+                    // 1. Guardar posición
+                    setFirstPoint({ lat: latitude, lon: longitude });
+                    
+                    // 2. Dibujar usuario
+                    if (userMarkerRef.current) userMarkerRef.current.remove();
+                    userMarkerRef.current = L.marker([latitude, longitude], { icon: icons.user }).addTo(map);
+
+                    // 3. AUTOMÁTICAMENTE buscar paradero más cercano y trazar ruta
+                    highlightNearest(map, latitude, longitude);
+                },
+                (error) => {
+                    console.warn("Geolocalización denegada o falló:", error);
+                },
+                { enableHighAccuracy: true } 
+            );
+        }
+    });
+
     loadRoute(map);
 
+    // Click Manual (Fallback)
     map.on("click", (e: L.LeafletMouseEvent) => {
       const { lat, lng } = e.latlng;
       setFirstPoint({ lat, lon: lng });
@@ -293,17 +317,15 @@ export default function Map() {
     <div className="relative w-full h-full font-sans">
       <div id="map" className="w-full h-full z-0 bg-zinc-100" />
 
-      {/* --- BOTÓN PERFIL (Arriba Derecha) --- */}
+      {/* --- BOTÓN PERFIL --- */}
       <div className="absolute top-4 right-4 z-[1000]">
         <a href="/profile" className="flex items-center justify-center w-10 h-10 bg-white rounded-full shadow-lg text-slate-600 hover:text-blue-600 hover:scale-110 transition-all cursor-pointer">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
         </a>
       </div>
 
-      {/* --- BUSCADOR EXPANDIBLE (Arriba Centro) --- */}
+      {/* --- BUSCADOR EXPANDIBLE --- */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[1000] transition-all duration-300 w-auto">
-        
-        {/* ESTADO 1: CERRADO (Solo Lupa) */}
         {!isSearchExpanded ? (
           <button 
             onClick={() => setIsSearchExpanded(true)}
@@ -313,7 +335,6 @@ export default function Map() {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
           </button>
         ) : (
-          /* ESTADO 2: ABIERTO (Input Completo) */
           <div className="relative w-[85vw] max-w-md animate-in fade-in zoom-in-95 duration-200">
              <div className="relative shadow-xl">
                 <input 
@@ -324,19 +345,15 @@ export default function Map() {
                     value={searchTerm}
                     onChange={(e) => handleSearch(e.target.value)}
                 />
-                {/* Icono Lupa (Decorativo) */}
                 <div className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
                 </div>
-                {/* Botón Cerrar (X) */}
                 <button 
                     onClick={() => { setIsSearchExpanded(false); setSearchTerm(""); setIsSearching(false); }}
                     className="absolute right-3 top-1/2 transform -translate-y-1/2 p-2 bg-slate-100 rounded-full text-slate-500 hover:bg-red-100 hover:text-red-500 transition-colors"
                 >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
-
-                {/* Resultados */}
                 {isSearching && filteredStops.length > 0 && (
                     <div className="absolute top-16 left-0 w-full bg-white rounded-xl shadow-2xl overflow-hidden border border-slate-100 max-h-60 overflow-y-auto">
                         {filteredStops.map(stop => (
@@ -352,7 +369,7 @@ export default function Map() {
         )}
       </div>
 
-      {/* --- TARJETA DE ESTADO (Izquierda Abajo) --- */}
+      {/* --- TARJETA DE ESTADO --- */}
       <div className="absolute bottom-8 left-4 z-[400] max-w-[280px]">
         <div className="bg-white/95 backdrop-blur shadow-2xl rounded-2xl p-4 border border-zinc-200 transition-all duration-300">
           <div className="flex justify-between items-center mb-3">
@@ -373,7 +390,7 @@ export default function Map() {
             <div className="mt-3 pt-3 border-t border-zinc-100 animate-in fade-in">
               <p className="text-[10px] uppercase tracking-wider text-blue-600 font-bold mb-1">Algoritmos en uso:</p>
               <div className="bg-blue-50/50 p-2 rounded border border-blue-100/50">
-                <p className="text-[10px] text-slate-600 leading-snug">{graphInfo || "Usa el buscador para ver el Grafo."}</p>
+                <p className="text-[10px] text-slate-600 leading-snug">{graphInfo || "Calculando ruta..."}</p>
               </div>
             </div>
           )}
